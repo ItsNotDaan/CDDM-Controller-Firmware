@@ -65,9 +65,9 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 #define SCROLL_SPEED 2
 
 //MCU_ROTARY_ENCODING_B1 moved from IO6 to IO2
-#define MCU_ROTARY_ENCODING_A1 7
-#define MCU_ROTARY_ENCODING_B1 2
-#define MCU_ROTARY_BUTTON 10
+// #define MCU_ROTARY_ENCODING_A1 7
+// #define MCU_ROTARY_ENCODING_B1 2
+#define MCU_ROTARY_BUTTON GPIO_NUM_10
 
 /*************For ESP-NOW******************/
 // Device type (MASTER or SLAVE)
@@ -124,8 +124,8 @@ void setup()
   display.setRotation(0);
 
   //Init the rotary encoder
-  pinMode(MCU_ROTARY_ENCODING_A1, INPUT);
-  pinMode(MCU_ROTARY_ENCODING_B1, INPUT);
+  // pinMode(MCU_ROTARY_ENCODING_A1, INPUT);
+  // pinMode(MCU_ROTARY_ENCODING_B1, INPUT);
   pinMode(MCU_ROTARY_BUTTON, INPUT_PULLUP);
 
   //Set the wake/deepsleep switch

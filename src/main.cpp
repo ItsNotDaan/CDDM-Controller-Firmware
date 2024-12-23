@@ -67,7 +67,7 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 //MCU_ROTARY_ENCODING_B1 moved from IO6 to IO2
 // #define MCU_ROTARY_ENCODING_A1 7
 // #define MCU_ROTARY_ENCODING_B1 2
-// #define MCU_ROTARY_BUTTON 10
+#define MCU_ROTARY_BUTTON GPIO_NUM_10
 
 /*************For ESP-NOW******************/
 // Device type (MASTER or SLAVE)
@@ -87,6 +87,10 @@ void scanI2CBus();
 // ----- Declare Global Variables -----
 int GyroX, GyroY, GyroZ;
 int AccX, AccY, AccZ;
+
+//Rotary Encoder
+int rotaryCount = 0; 
+bool rotaryButtonState = false;
 
 
 // Setup
@@ -119,6 +123,11 @@ void setup()
   display.setTextColor(WHITE);
   display.setRotation(0);
 
+  //Init the rotary encoder
+  // pinMode(MCU_ROTARY_ENCODING_A1, INPUT);
+  // pinMode(MCU_ROTARY_ENCODING_B1, INPUT);
+  pinMode(MCU_ROTARY_BUTTON, INPUT_PULLUP);
+
   //Set the wake/deepsleep switch
   // Configure the wake-up pin as input
   pinMode(MCU_WAKE_DEEPSLEEP, INPUT);
@@ -139,33 +148,21 @@ void setup()
 // Main loop
 void loop()
 {
-  //Read the accelerometer
+  if ((digitalRead(MCU_ROTARY_BUTTON) == LOW) && (rotaryButtonState == false)){
 
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
-
-  display.clearDisplay();
-  display.setCursor(0, 0);
-
-  display.println("Accelerometer - m/s^2");
-  display.print(a.acceleration.x, 1);
-  display.print(", ");
-  display.print(a.acceleration.y, 1);
-  display.print(", ");
-  display.print(a.acceleration.z, 1);
-  display.println("");
-
-  display.println("Gyroscope - rps");
-  display.print(g.gyro.x, 1);
-  display.print(", ");
-  display.print(g.gyro.y, 1);
-  display.print(", ");
-  display.print(g.gyro.z, 1);
-  display.println("");
-
-  display.display();
-  delay(100);
-
+    rotaryButtonState = true;
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("Button pressed!");
+    display.print("Rotary Count: ");
+    display.println(rotaryCount);
+    display.display();
+    
+    rotaryCount++;
+  }
+  else if (digitalRead(MCU_ROTARY_BUTTON) == HIGH){
+    rotaryButtonState = false;
+  }
 
   // readGyroscope();
   // printGyroData();
@@ -192,22 +189,36 @@ void loop()
 }
 
 
+
 /***********************************Read Gyroscope******************************************/
 /// @brief This function will read the gyroscope values and store them in the global variables.
 void readGyroscope() {
-  //Read the gyroscope values
+  //Read the accelerometer
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
-  //Store the gyroscope values in the global variables
-  GyroX = g.gyro.x;
-  GyroY = g.gyro.y;
-  GyroZ = g.gyro.z;
+  display.clearDisplay();
+  display.setCursor(0, 0);
 
-  //Store the accelerometer values in the global variables
-  AccX = a.acceleration.x;
-  AccY = a.acceleration.y;
-  AccZ = a.acceleration.z;
+  display.println("Accelerometer - m/s^2");
+  display.print(a.acceleration.x, 1);
+  display.print(", ");
+  display.print(a.acceleration.y, 1);
+  display.print(", ");
+  display.print(a.acceleration.z, 1);
+  display.println("");
+
+  display.println("Gyroscope - rps");
+  display.print(g.gyro.x, 1);
+  display.print(", ");
+  display.print(g.gyro.y, 1);
+  display.print(", ");
+  display.print(g.gyro.z, 1);
+  display.println("");
+
+  display.display();
+  delay(100);
+
 }
 
 /***********************************Print Gyroscope Data******************************************/
@@ -300,4 +311,44 @@ void scanI2CBus() {
   display.display();
 
   delay(5000);
+}
+
+
+
+/***********************************Menu******************************************/
+/// @brief This function will display a menu on the OLED screen and navigate through it using the rotary encoder.
+void displayMenu() {
+  int menuIndex = 0;
+  int lastMenuIndex = -1;
+
+  while (true) {
+    // Read the rotary encoder
+    int newMenuIndex = menuIndex; // Replace this with actual rotary encoder reading logic
+
+    if (newMenuIndex != lastMenuIndex) {
+      lastMenuIndex = newMenuIndex;
+
+      display.clearDisplay();
+      display.setCursor(0, 0);
+
+      switch (newMenuIndex) {
+        case 0:
+          display.println("Menu Item 1");
+          break;
+        case 1:
+          display.println("Menu Item 2");
+          break;
+        case 2:
+          display.println("Menu Item 3");
+          break;
+        default:
+          display.println("Invalid Menu Item");
+          break;
+      }
+
+      display.display();
+    }
+
+    delay(100); // Adjust delay as needed
+  }
 }

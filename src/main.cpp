@@ -65,8 +65,8 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 #define SCROLL_SPEED 2
 
 //MCU_ROTARY_ENCODING_B1 moved from IO6 to IO2
-// #define MCU_ROTARY_ENCODING_A1 7
-// #define MCU_ROTARY_ENCODING_B1 2
+#define MCU_ROTARY_ENCODING_A1 GPIO_NUM_21
+#define MCU_ROTARY_ENCODING_B1 GPIO_NUM_1
 #define MCU_ROTARY_BUTTON GPIO_NUM_10
 
 /*************For ESP-NOW******************/
@@ -89,8 +89,12 @@ int GyroX, GyroY, GyroZ;
 int AccX, AccY, AccZ;
 
 //Rotary Encoder
-int rotaryCount = 0; 
-bool rotaryButtonState = false;
+int rotaryButtonCount = 0; 
+bool rotaryButtonState = LOW;
+
+int rotaryTurnCount = 0;
+int CLK_state;
+int prev_CLK_state;
 
 
 // Setup
@@ -124,8 +128,8 @@ void setup()
   display.setRotation(0);
 
   //Init the rotary encoder
-  // pinMode(MCU_ROTARY_ENCODING_A1, INPUT);
-  // pinMode(MCU_ROTARY_ENCODING_B1, INPUT);
+  pinMode(MCU_ROTARY_ENCODING_A1, INPUT_PULLUP);
+  pinMode(MCU_ROTARY_ENCODING_B1, INPUT_PULLUP);
   pinMode(MCU_ROTARY_BUTTON, INPUT_PULLUP);
 
   //Set the wake/deepsleep switch
@@ -148,27 +152,42 @@ void setup()
 // Main loop
 void loop()
 {
-  if ((digitalRead(MCU_ROTARY_BUTTON) == LOW) && (rotaryButtonState == false)){
+  /*ROTARY ENCODER BUTTON*/
+  if ((digitalRead(MCU_ROTARY_BUTTON) == LOW) && (rotaryButtonState == HIGH)){
 
-    rotaryButtonState = true;
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("Button pressed!");
-    display.print("Rotary Count: ");
-    display.println(rotaryCount);
-    display.display();
-    
-    rotaryCount++;
+    rotaryButtonCount++;
   }
-  else if (digitalRead(MCU_ROTARY_BUTTON) == HIGH){
-    rotaryButtonState = false;
+  
+  rotaryButtonState = digitalRead(MCU_ROTARY_BUTTON);
+
+
+  // read the current state of the rotary encoder's CLK pin
+  CLK_state = digitalRead(MCU_ROTARY_ENCODING_A1);
+
+  // If the state of CLK is changed, then pulse occurred
+  // React to only the rising edge (from LOW to HIGH) to avoid double count
+  if (CLK_state != prev_CLK_state && CLK_state == HIGH) {
+    // if the DT state is HIGH
+    // the encoder is rotating in counter-clockwise direction => decrease the counter
+    if (digitalRead(MCU_ROTARY_ENCODING_B1) == HIGH) {
+      rotaryTurnCount--;
+    } else {
+      // the encoder is rotating in clockwise direction => increase the counter
+      rotaryTurnCount++;
+    }
   }
 
-  // readGyroscope();
-  // printGyroData();
-  // testI2CPins();
+  // save last CLK state
+  prev_CLK_state = CLK_state;
+  
 
-  // scanI2CBus();
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.print("BTN Count: ");
+  display.println(rotaryButtonCount);
+  display.print("Rotary Count: ");
+  display.println(rotaryTurnCount);
+  display.display();
 
   // //Check if the wake/deepsleep switch is pressed
   if (digitalRead(MCU_WAKE_DEEPSLEEP) == LOW){

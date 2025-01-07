@@ -1,11 +1,11 @@
 /*
-  Name: CDDM-Controller-Firmware 
+  Name: CDDM-Controller-Firmware
   Date: 13-11-2024
   Author: Daan Heetkamp
 
   Description:
-  This firmware is designed for the ESP32C3 Wroom microcontroller. 
-  It utilizes a wake/deepsleep switch, OLED Screen (0.91 OLED) and an external gyroscope (MPU6050). 
+  This firmware is designed for the ESP32C3 Wroom microcontroller.
+  It utilizes a wake/deepsleep switch, OLED Screen (0.91 OLED) and an external gyroscope (MPU6050).
   The communication between the devices is facilitated by ESP-NOW EASY.
   Using a rotary encoder, the user can control the data on the OLED.
 
@@ -41,18 +41,14 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 // ----- Declare Constants -----
 
-// #define DEBUG 1
-#define DEBUG GPIO_NUM_1
+#define DEBUG_GYRO true
+#define DEBUG_MOTOR true
+#define DEBUG_ESPNOW true
+#define DEBUG_SYSTEM true
 
 /*************For the ESP32C3 Wroom SOM******************/
-//SDA moved from IO8 to IO4
-//SCL moved from IO7 to IO5
-// #define MCU_SDA 7
-// #define MCU_SCL 8
-
 #define MCU_SDA GPIO_NUM_7
 #define MCU_SCL GPIO_NUM_8
-
 
 #define MCU_WAKE_DEEPSLEEP GPIO_NUM_3
 
@@ -64,62 +60,71 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 #define ANIMATION_DELAY 100
 #define SCROLL_SPEED 2
 
-//MCU_ROTARY_ENCODING_B1 moved from IO6 to IO2
+// MCU_ROTARY_ENCODING_B1 moved from IO6 to IO2
 #define MCU_ROTARY_ENCODING_A1 GPIO_NUM_21
 #define MCU_ROTARY_ENCODING_B1 GPIO_NUM_1
 #define MCU_ROTARY_BUTTON GPIO_NUM_10
 
 /*************For ESP-NOW******************/
 // Device type (MASTER or SLAVE)
-#define DEVICE_TYPE MASTER
+#define DEVICE_TYPE SLAVE
 // Debug setting (DEBUG_ON or DEBUG_OFF)
 #define DEBUG_SETTING DEBUG_ON
-
 
 // ----- Declare Objects -----
 
 // ----- Declare subroutines and/or functions -----
 void readGyroscope();
 void printGyroData();
-void scrollText(const String& text);
+void scrollText(const String &text);
 void scanI2CBus();
 
 // ----- Declare Global Variables -----
 int GyroX, GyroY, GyroZ;
 int AccX, AccY, AccZ;
 
-//Rotary Encoder
-int rotaryButtonCount = 0; 
+// Rotary Encoder
+int rotaryButtonCount = 0;
 bool rotaryButtonState = LOW;
 
 int rotaryTurnCount = 0;
 int CLK_state;
 int prev_CLK_state;
 
-
 // Setup
 void setup()
 {
   Serial.begin(115200); // Start the serial monitor at 115200 baud
 
-  //Wire
+  // Wire
   Wire.begin(MCU_SDA, MCU_SCL, 1000000); // Start the I2C communication
 
-  //ESPNOW
-  // initESPNOW(DEVICE_TYPE, DEBUG_SETTING);
-  // // if (initESPNOW(DEVICE_TYPE, DEBUG_SETTING) == false)
-  // // {
-  // //   Serial.println("ESP-NOW initialization failed");
-  // //   ESP.restart();
-  // // }
+  // ESPNOW
+  if (initESPNOW(DEVICE_TYPE, DEBUG_SETTING) == false)
+  {
+    Serial.println("ESP-NOW initialization failed");
+    ESP.restart();
+  }
 
-  // startPairingProcess();
-  // setReceivedMessageOnMonitor(true);
-  
-  //Initialize the MPU6050 and set offset values
-  mpu.begin();
+  startPairingProcess();
+  setReceivedMessageOnMonitor(true);
 
-  //Initialize the OLED screen
+  // Initialize the MPU6050 and set offset values
+  if (!mpu.begin())
+  {
+    Serial.println("Failed to find MPU6050 chip");
+    while (1)
+    {
+      delay(10);
+    }
+  }
+  Serial.println("MPU6050 Found!");
+
+  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+
+  // Initialize the OLED screen
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3C for 128x32
   display.clearDisplay();
 
@@ -127,51 +132,59 @@ void setup()
   display.setTextColor(WHITE);
   display.setRotation(0);
 
-  //Init the rotary encoder
+  // Init the rotary encoder
   pinMode(MCU_ROTARY_ENCODING_A1, INPUT_PULLUP);
   pinMode(MCU_ROTARY_ENCODING_B1, INPUT_PULLUP);
   pinMode(MCU_ROTARY_BUTTON, INPUT_PULLUP);
 
-  //Set the wake/deepsleep switch
-  // Configure the wake-up pin as input
+  // Set the wake/deepsleep switch
+  //  Configure the wake-up pin as input
   pinMode(MCU_WAKE_DEEPSLEEP, INPUT);
 
-  // pinMode(MCU_SDA, OUTPUT);
-  // pinMode(MCU_SCL, OUTPUT);
-  pinMode(DEBUG, OUTPUT);
-
   esp_deep_sleep_enable_gpio_wakeup(1 << MCU_WAKE_DEEPSLEEP, ESP_GPIO_WAKEUP_GPIO_HIGH);
-  gpio_pulldown_en(MCU_WAKE_DEEPSLEEP);  
+  gpio_pulldown_en(MCU_WAKE_DEEPSLEEP);
   gpio_pullup_dis(MCU_WAKE_DEEPSLEEP);
 
   display.setCursor(0, 0);
   display.println("Hello, World!");
   display.display();
+
+  Serial.println("Setup complete");
 }
 
 // Main loop
 void loop()
 {
-  /*ROTARY ENCODER BUTTON*/
-  if ((digitalRead(MCU_ROTARY_BUTTON) == LOW) && (rotaryButtonState == HIGH)){
+  //ESPNOW
+  checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
 
+
+  // Check the rotary encoder button for a press.
+  if ((digitalRead(MCU_ROTARY_BUTTON) == LOW) && (rotaryButtonState == HIGH))
+  {
     rotaryButtonCount++;
   }
-  
   rotaryButtonState = digitalRead(MCU_ROTARY_BUTTON);
 
+  printGyroData();
+
+  // Check the rotary encoder for a turn.
 
   // read the current state of the rotary encoder's CLK pin
   CLK_state = digitalRead(MCU_ROTARY_ENCODING_A1);
 
   // If the state of CLK is changed, then pulse occurred
   // React to only the rising edge (from LOW to HIGH) to avoid double count
-  if (CLK_state != prev_CLK_state && CLK_state == HIGH) {
+  if (CLK_state != prev_CLK_state && CLK_state == HIGH)
+  {
     // if the DT state is HIGH
     // the encoder is rotating in counter-clockwise direction => decrease the counter
-    if (digitalRead(MCU_ROTARY_ENCODING_B1) == HIGH) {
+    if (digitalRead(MCU_ROTARY_ENCODING_B1) == HIGH)
+    {
       rotaryTurnCount--;
-    } else {
+    }
+    else
+    {
       // the encoder is rotating in clockwise direction => increase the counter
       rotaryTurnCount++;
     }
@@ -179,7 +192,6 @@ void loop()
 
   // save last CLK state
   prev_CLK_state = CLK_state;
-  
 
   display.clearDisplay();
   display.setCursor(0, 0);
@@ -190,29 +202,29 @@ void loop()
   display.display();
 
   // //Check if the wake/deepsleep switch is pressed
-  if (digitalRead(MCU_WAKE_DEEPSLEEP) == LOW){
+  if (digitalRead(MCU_WAKE_DEEPSLEEP) == LOW)
+  {
     // Serial.println("Going to sleep");
     display.clearDisplay();
     display.setCursor(0, 0);
     display.println("Going to sleep!");
     display.display();
+
+    Serial.println("Going to sleep");
     delay(1000);
 
-    display.clearDisplay(); 
+    display.clearDisplay();
     display.display();
 
     esp_deep_sleep_start();
   }
-
-  
 }
-
-
 
 /***********************************Read Gyroscope******************************************/
 /// @brief This function will read the gyroscope values and store them in the global variables.
-void readGyroscope() {
-  //Read the accelerometer
+void readGyroscope()
+{
+  // Read the accelerometer
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
@@ -237,44 +249,50 @@ void readGyroscope() {
 
   display.display();
   delay(100);
-
 }
 
 /***********************************Print Gyroscope Data******************************************/
 /// @brief This function will print the gyroscope values to the OLED screen.
-void printGyroData() {
-  display.clearDisplay();
-  display.setCursor(0, 0);
+void printGyroData()
+{
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
 
-  display.println("Accelerometer - m/s^2");
-  display.print(AccX, 1);
-  display.print(", ");
-  display.print(AccY, 1);
-  display.print(", ");
-  display.print(AccZ, 1);
-  display.println("");
+  /* Print out the values */
+  Serial.print("Acceleration X: ");
+  Serial.print(a.acceleration.x);
+  Serial.print(", Y: ");
+  Serial.print(a.acceleration.y);
+  Serial.print(", Z: ");
+  Serial.print(a.acceleration.z);
+  Serial.println(" m/s^2");
 
-  display.println("Gyroscope - rps");
-  display.print(GyroX, 1);
-  display.print(", ");
-  display.print(GyroY, 1);
-  display.print(", ");
-  display.print(GyroZ, 1);
-  display.println("");
+  Serial.print("Rotation X: ");
+  Serial.print(g.gyro.x);
+  Serial.print(", Y: ");
+  Serial.print(g.gyro.y);
+  Serial.print(", Z: ");
+  Serial.print(g.gyro.z);
+  Serial.println(" rad/s");
 
-  display.display();
-  delay(100);
+  Serial.print("Temperature: ");
+  Serial.print(temp.temperature);
+  Serial.println(" degC");
+
+  Serial.println("");
+  delay(500);
 }
-
 
 /***********************************Scroll Text******************************************/
 /// @brief This function will print the gyroscope values to the OLED screen.
 // / @param text The text to be scrolled.
-void scrollText(const String& text) {
+void scrollText(const String &text)
+{
   int textWidth = text.length() * 6; // Each character is 6 pixels wide
   int xPos = SCREEN_WIDTH;
 
-  while (xPos > -textWidth) {
+  while (xPos > -textWidth)
+  {
     display.clearDisplay();
     display.setCursor(xPos, (SCREEN_HEIGHT - 8) / 2);
     display.println(text);
@@ -284,10 +302,10 @@ void scrollText(const String& text) {
   }
 }
 
-
 /***********************************Scan I2C Bus******************************************/
 /// @brief This function will test scan the I2C bus and print the results to the OLED screen.
-void scanI2CBus() {
+void scanI2CBus()
+{
   display.clearDisplay();
   display.setCursor(0, 0);
   display.println("Scanning I2C bus...");
@@ -295,7 +313,7 @@ void scanI2CBus() {
 
   delay(1000);
   display.clearDisplay();
-  display.setCursor(0,0); 
+  display.setCursor(0, 0);
 
   byte error;
   byte address[] = {0, 0, 0, 0};
@@ -303,66 +321,72 @@ void scanI2CBus() {
 
   nDevices = 0;
 
-  //Scan the I2C bus and add the addresses to the address array
-  for (byte i = 1; i < 127; i++) {
+  // Scan the I2C bus and add the addresses to the address array
+  for (byte i = 1; i < 127; i++)
+  {
     Wire.beginTransmission(i);
     error = Wire.endTransmission();
-    if (error == 0) {
+    if (error == 0)
+    {
       address[nDevices] = i;
       nDevices++;
     }
   }
 
-  //Print the addresses to the OLED screen
+  // Print the addresses to the OLED screen
   display.setCursor(0, 0);
   display.println("I2C devices found:");
-  for (int i = 0; i < nDevices; i++) {
+  for (int i = 0; i < nDevices; i++)
+  {
     display.print("Device ");
     display.print(i);
     display.print(":0x");
-    if (address[i] < 16) {
+    if (address[i] < 16)
+    {
       display.print("0");
     }
     display.println(address[i], HEX);
   }
 
-  //Display the data to the OLED.
+  // Display the data to the OLED.
   display.display();
 
   delay(5000);
 }
 
-
-
 /***********************************Menu******************************************/
 /// @brief This function will display a menu on the OLED screen and navigate through it using the rotary encoder.
-void displayMenu() {
+void displayMenu()
+{
   int menuIndex = 0;
   int lastMenuIndex = -1;
 
-  while (true) {
+  while (true)
+  {
     // Read the rotary encoder
     int newMenuIndex = menuIndex; // Replace this with actual rotary encoder reading logic
 
-    if (newMenuIndex != lastMenuIndex) {
+    if (newMenuIndex != lastMenuIndex)
+    {
       lastMenuIndex = newMenuIndex;
 
       display.clearDisplay();
       display.setCursor(0, 0);
 
-      switch (newMenuIndex) {
-        case 0:
-          display.println("Menu Item 1");
-          break;
-        case 1:
-          display.println("Menu Item 2");
-          break;
-        case 2:
-          display.println("Menu Item 3");
-          break;
-        default:
-          display.println("Invalid Menu Item");
-          break;
+      switch (newMenuIndex)
+      {
+      case 0:
+        display.println("Menu Item 1");
+        break;
+      case 1:
+        display.println("Menu Item 2");
+        break;
+      case 2:
+        display.println("Menu Item 3");
+        break;
+      default:
+        display.println("Invalid Menu Item");
+        break;
       }
 
       display.display();

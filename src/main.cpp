@@ -100,7 +100,7 @@ int prev_CLK_state;
 // Setup
 void setup()
 {
-  // Serial.begin(9600); // Start the serial monitor at 115200 baud
+  Serial.begin(115200); // Start the serial monitor at 115200 baud
 
   //Wire
   Wire.begin(MCU_SDA, MCU_SCL, 1000000); // Start the I2C communication

@@ -97,7 +97,7 @@ void setup()
   // Wire
   Wire.begin(MCU_SDA, MCU_SCL, 1000000); // Start the I2C communication
 
-  // SPNOW
+  // ESPNOW
   if (initESPNOW(DEVICE_TYPE, DEBUG_SETTING) == false)
   {
     Serial.println("ESP-NOW initialization failed");

@@ -26,6 +26,7 @@ struct_pairing pairingData;   // pairing data
 
 // Create a struct for the gyroscope data
 struct_gyro mpuReceivingData;
+struct_gyro mpuSendingData;
 
 
 /***************************************checkPairingModeStatus********************************************/

@@ -23,30 +23,29 @@
   0.4 - Cleaning up code and adding comments. TO-DO: Make the device OLED more user-friendly.
 */
 
-//include libraries
+// include libraries
 #include <Arduino.h>
 #include <ESPNOW-EASY.h>
 #include "driver/rtc_io.h"
 #include <esp_sleep.h>
 
-//include the MPU6050 library
+// include the MPU6050 library
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 
-//include the OLED library
+// include the OLED library
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-
 // ------- Declare Constants -------
-//Debug Settings (true or false)
+// Debug Settings (true or false)
 #define DEBUG_GYRO true
 #define DEBUG_ROTARY false
 #define DEBUG_ESPNOW false
 #define DEBUG_SYSTEM true
 
-//GPIO Pins
+// GPIO Pins
 #define MCU_SDA GPIO_NUM_7
 #define MCU_SCL GPIO_NUM_8
 
@@ -56,22 +55,20 @@
 #define MCU_ROTARY_ENCODING_B1 GPIO_NUM_1
 #define MCU_ROTARY_BUTTON GPIO_NUM_10
 
-//Constants for OLED display dimensions.
+// Constants for OLED display dimensions.
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 32
 
-/// ESP-NOW settings
-//Device type (MASTER or SLAVE)
-#define DEVICE_TYPE MASTER
-//Debug setting (DEBUG_ON or DEBUG_OFF)
-#define DEBUG_SETTING DEBUG_ON
+// ESP-NOW settings
+#define DEVICE_TYPE MASTER     // Device type (MASTER or SLAVE)
+#define DEBUG_SETTING DEBUG_ON // Debug setting (DEBUG_ON or DEBUG_OFF)
 
 // ----- Declare Objects -----
-//Create an object of the MPU6050 Objects
+// Create an object of the MPU6050 Objects
 Adafruit_MPU6050 mpu;
 sensors_event_t a, g, temp;
 
-//Create an object of the OLED screen
+// Create an object of the OLED screen
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 // ----- Declare subroutines and/or functions -----
@@ -81,10 +78,10 @@ void checkOnOffSwitch();
 void displayMenu();
 
 // ----- Declare Global Variables -----
-//MPU6050 variables
+// MPU6050 variables
 float accY, accX;
 
-//Rotary Encoder button and turn variables
+// Rotary Encoder button and turn variables
 int rotaryButtonCount = 0;
 bool rotaryButtonState = LOW;
 
@@ -92,13 +89,13 @@ int rotaryTurnCount = 0;
 int CLK_state;
 int prev_CLK_state;
 
-//Setup
+// Setup
 void setup()
 {
-  Serial.begin(115200); //Start the serial monitor at 115200 baud
+  Serial.begin(115200); // Start the serial monitor at 115200 baud
 
-  //Wire
-  Wire.begin(MCU_SDA, MCU_SCL, 1000000); //Start the I2C communication
+  // Wire
+  Wire.begin(MCU_SDA, MCU_SCL, 1000000); // Start the I2C communication
 
   // SPNOW
   if (initESPNOW(DEVICE_TYPE, DEBUG_SETTING) == false)
@@ -110,7 +107,7 @@ void setup()
   startPairingProcess();
   setReceivedMessageOnMonitor(DEBUG_ESPNOW);
 
-  //Initialize the MPU6050 and set offset values
+  // Initialize the MPU6050 and set offset values
   if (!mpu.begin())
   {
     Serial.println("Failed to find MPU6050 chip");
@@ -121,34 +118,34 @@ void setup()
   }
   Serial.println("MPU6050 Found!");
 
-  //Initialize the MPU6050 and set offset values
+  // Initialize the MPU6050 and set offset values
   mpu.begin();
 
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
-  //Initialize the OLED screen
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); //Address 0x3C for 128x32
+  // Initialize the OLED screen
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3C for 128x32
   display.clearDisplay();
 
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setRotation(0);
 
-  //Init the rotary encoder pins
+  // Init the rotary encoder pins
   pinMode(MCU_ROTARY_ENCODING_A1, INPUT_PULLUP);
   pinMode(MCU_ROTARY_ENCODING_B1, INPUT_PULLUP);
   pinMode(MCU_ROTARY_BUTTON, INPUT_PULLUP);
 
-  //Set the wake/deepsleep switch
+  // Set the wake/deepsleep switch
   pinMode(MCU_WAKE_DEEPSLEEP, INPUT);
 
   esp_deep_sleep_enable_gpio_wakeup(1 << MCU_WAKE_DEEPSLEEP, ESP_GPIO_WAKEUP_GPIO_HIGH);
   gpio_pulldown_en(MCU_WAKE_DEEPSLEEP);
   gpio_pullup_dis(MCU_WAKE_DEEPSLEEP);
 
-  //Display the welcome message
+  // Display the welcome message
   display.setCursor(0, 0);
   display.println("Hello, World!");
   display.display();
@@ -159,19 +156,19 @@ void setup()
 // Main loop
 void loop()
 {
-  //Check the rotary encoder for a turn or press.
+  // Check the rotary encoder for a turn or press.
   checkRotaryEncoder();
 
-  //Read the gyroscope values
+  // Read the gyroscope values
   readGyroscope();
 
-  //Check if the wake/deepsleep switch is pressed
+  // Check if the wake/deepsleep switch is pressed
   checkOnOffSwitch();
 
-  //Check the ESP-NOW pairing mode status
+  // Check the ESP-NOW pairing mode status
   checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
 
-  //Write to ESP-NOW
+  // Write to ESP-NOW
   sendMpuData(0, 0, 0, accX, accY, 0);
   // sendData(DATA, "Hello", 1);
 }

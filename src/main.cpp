@@ -67,7 +67,7 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 /*************For ESP-NOW******************/
 // Device type (MASTER or SLAVE)
-#define DEVICE_TYPE SLAVE
+#define DEVICE_TYPE MASTER
 // Debug setting (DEBUG_ON or DEBUG_OFF)
 #define DEBUG_SETTING DEBUG_ON
 
@@ -283,22 +283,37 @@ void printGyroData()
   delay(500);
 }
 
-/***********************************Scroll Text******************************************/
-/// @brief This function will print the gyroscope values to the OLED screen.
-// / @param text The text to be scrolled.
-void scrollText(const String &text)
-{
-  int textWidth = text.length() * 6; // Each character is 6 pixels wide
-  int xPos = SCREEN_WIDTH;
+/***********************************PID******************************************/
+/// @brief This function will do the PID calculations.
+void PID_Calc() {  
 
-  while (xPos > -textWidth)
-  {
-    display.clearDisplay();
-    display.setCursor(xPos, (SCREEN_HEIGHT - 8) / 2);
-    display.println(text);
-    display.display();
-    delay(ANIMATION_DELAY);
-    xPos -= SCROLL_SPEED;
+  //Calculate the angle of inclination using the accelerometer and gyroscope
+  //accY needs to be reversed to create the correct front.
+  accAngle = atan2(-accY, accZ) * RAD_TO_DEG;
+  gyroRate = map(gyroX, -32768, 32767, -250, 250);
+  gyroAngle = (float)gyroRate * sampleTime;  
+  currentAngle = 0.9934 * (prevAngle + gyroAngle) + 0.0066 * accAngle;
+  
+  targetAngle = wishedAngle + zeroAngle;
+
+  //Calculate the error, error sum and motor power
+  error = currentAngle - targetAngle;
+  errorSum += error;   //This += is the same as errorSum = errorSum + error;
+  errorSum = constrain(errorSum, -300, 300);
+  
+  //Calculate the output from P, I and D values
+  motorPower = Kp * error + Ki * errorSum * sampleTime - Kd * (currentAngle - prevAngle) / sampleTime;
+  prevAngle = currentAngle;
+
+  //DEBUG information
+  if(DEBUG_GYRO) {
+    Serial.print("Current Angle: ");
+    Serial.println(currentAngle);
+    Serial.print("Target Angle: ");
+    Serial.println(targetAngle);
+    Serial.print("Motor Power: ");
+    Serial.println(motorPower);
+    Serial.println("");
   }
 }
 

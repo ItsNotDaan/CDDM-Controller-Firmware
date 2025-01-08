@@ -42,8 +42,8 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 // ----- Declare Constants -----
 
 #define DEBUG_GYRO true
-#define DEBUG_MOTOR true
-#define DEBUG_ESPNOW true
+#define DEBUG_ROTARY false
+#define DEBUG_ESPNOW false
 #define DEBUG_SYSTEM true
 
 /*************For the ESP32C3 Wroom SOM******************/
@@ -55,10 +55,6 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 // Constants for OLED display dimensions.
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 32
-
-// Constants for animation delay and text scrolling speed.
-#define ANIMATION_DELAY 100
-#define SCROLL_SPEED 2
 
 // MCU_ROTARY_ENCODING_B1 moved from IO6 to IO2
 #define MCU_ROTARY_ENCODING_A1 GPIO_NUM_21
@@ -75,13 +71,15 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 // ----- Declare subroutines and/or functions -----
 void readGyroscope();
-void printGyroData();
-void scrollText(const String &text);
 void scanI2CBus();
 
+void checkRotaryEncoder();
+
+void checkOnOffSwitch();
+
 // ----- Declare Global Variables -----
-int GyroX, GyroY, GyroZ;
-int AccX, AccY, AccZ;
+float accY, accX;
+sensors_event_t a, g, temp;
 
 // Rotary Encoder
 int rotaryButtonCount = 0;
@@ -107,7 +105,7 @@ void setup()
   }
 
   startPairingProcess();
-  setReceivedMessageOnMonitor(true);
+  setReceivedMessageOnMonitor(DEBUG_ESPNOW);
 
   // Initialize the MPU6050 and set offset values
   if (!mpu.begin())
@@ -119,6 +117,9 @@ void setup()
     }
   }
   Serial.println("MPU6050 Found!");
+
+  // Initialize the MPU6050 and set offset values
+  mpu.begin();
 
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
@@ -132,19 +133,19 @@ void setup()
   display.setTextColor(WHITE);
   display.setRotation(0);
 
-  // Init the rotary encoder
+  // Init the rotary encoder pins
   pinMode(MCU_ROTARY_ENCODING_A1, INPUT_PULLUP);
   pinMode(MCU_ROTARY_ENCODING_B1, INPUT_PULLUP);
   pinMode(MCU_ROTARY_BUTTON, INPUT_PULLUP);
 
   // Set the wake/deepsleep switch
-  //  Configure the wake-up pin as input
   pinMode(MCU_WAKE_DEEPSLEEP, INPUT);
 
   esp_deep_sleep_enable_gpio_wakeup(1 << MCU_WAKE_DEEPSLEEP, ESP_GPIO_WAKEUP_GPIO_HIGH);
   gpio_pulldown_en(MCU_WAKE_DEEPSLEEP);
   gpio_pullup_dis(MCU_WAKE_DEEPSLEEP);
 
+  // Display the welcome message
   display.setCursor(0, 0);
   display.println("Hello, World!");
   display.display();
@@ -155,20 +156,53 @@ void setup()
 // Main loop
 void loop()
 {
-  //ESPNOW
+  // ESPNOW
   checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
 
+  // Check the rotary encoder for a turn or press.
+  checkRotaryEncoder();
 
+  // Read the gyroscope values
+  readGyroscope();
+
+  // Check if the wake/deepsleep switch is pressed
+  checkOnOffSwitch();
+}
+//******************************************************************************************************//
+
+/***********************************Check On/Off Switch******************************************/
+/// @brief This function will check the on/off switch and put the ESP32C3 in deep sleep mode.
+void checkOnOffSwitch()
+{
+  // Check if the wake/deepsleep switch is pressed
+  if (digitalRead(MCU_WAKE_DEEPSLEEP) == LOW)
+  {
+    // Serial.println("Going to sleep");
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("Going to sleep!");
+    display.display();
+
+    Serial.println("Going to sleep");
+    delay(1000);
+
+    display.clearDisplay();
+    display.display();
+
+    esp_deep_sleep_start();
+  }
+}
+
+/***********************************Check Rotary Encoder******************************************/
+/// @brief This function will check the rotary encoder for a turn or press.
+void checkRotaryEncoder()
+{
   // Check the rotary encoder button for a press.
   if ((digitalRead(MCU_ROTARY_BUTTON) == LOW) && (rotaryButtonState == HIGH))
   {
     rotaryButtonCount++;
   }
   rotaryButtonState = digitalRead(MCU_ROTARY_BUTTON);
-
-  printGyroData();
-
-  // Check the rotary encoder for a turn.
 
   // read the current state of the rotary encoder's CLK pin
   CLK_state = digitalRead(MCU_ROTARY_ENCODING_A1);
@@ -193,127 +227,16 @@ void loop()
   // save last CLK state
   prev_CLK_state = CLK_state;
 
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.print("BTN Count: ");
-  display.println(rotaryButtonCount);
-  display.print("Rotary Count: ");
-  display.println(rotaryTurnCount);
-  display.display();
-
-  // //Check if the wake/deepsleep switch is pressed
-  if (digitalRead(MCU_WAKE_DEEPSLEEP) == LOW)
+  // Display the rotary encoder values on the OLED screen
+  if (DEBUG_ROTARY)
   {
-    // Serial.println("Going to sleep");
     display.clearDisplay();
     display.setCursor(0, 0);
-    display.println("Going to sleep!");
+    display.print("BTN Count: ");
+    display.println(rotaryButtonCount);
+    display.print("Rotary Count: ");
+    display.println(rotaryTurnCount);
     display.display();
-
-    Serial.println("Going to sleep");
-    delay(1000);
-
-    display.clearDisplay();
-    display.display();
-
-    esp_deep_sleep_start();
-  }
-}
-
-/***********************************Read Gyroscope******************************************/
-/// @brief This function will read the gyroscope values and store them in the global variables.
-void readGyroscope()
-{
-  // Read the accelerometer
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
-
-  display.clearDisplay();
-  display.setCursor(0, 0);
-
-  display.println("Accelerometer - m/s^2");
-  display.print(a.acceleration.x, 1);
-  display.print(", ");
-  display.print(a.acceleration.y, 1);
-  display.print(", ");
-  display.print(a.acceleration.z, 1);
-  display.println("");
-
-  display.println("Gyroscope - rps");
-  display.print(g.gyro.x, 1);
-  display.print(", ");
-  display.print(g.gyro.y, 1);
-  display.print(", ");
-  display.print(g.gyro.z, 1);
-  display.println("");
-
-  display.display();
-  delay(100);
-}
-
-/***********************************Print Gyroscope Data******************************************/
-/// @brief This function will print the gyroscope values to the OLED screen.
-void printGyroData()
-{
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
-
-  /* Print out the values */
-  Serial.print("Acceleration X: ");
-  Serial.print(a.acceleration.x);
-  Serial.print(", Y: ");
-  Serial.print(a.acceleration.y);
-  Serial.print(", Z: ");
-  Serial.print(a.acceleration.z);
-  Serial.println(" m/s^2");
-
-  Serial.print("Rotation X: ");
-  Serial.print(g.gyro.x);
-  Serial.print(", Y: ");
-  Serial.print(g.gyro.y);
-  Serial.print(", Z: ");
-  Serial.print(g.gyro.z);
-  Serial.println(" rad/s");
-
-  Serial.print("Temperature: ");
-  Serial.print(temp.temperature);
-  Serial.println(" degC");
-
-  Serial.println("");
-  delay(500);
-}
-
-/***********************************PID******************************************/
-/// @brief This function will do the PID calculations.
-void PID_Calc() {  
-
-  //Calculate the angle of inclination using the accelerometer and gyroscope
-  //accY needs to be reversed to create the correct front.
-  accAngle = atan2(-accY, accZ) * RAD_TO_DEG;
-  gyroRate = map(gyroX, -32768, 32767, -250, 250);
-  gyroAngle = (float)gyroRate * sampleTime;  
-  currentAngle = 0.9934 * (prevAngle + gyroAngle) + 0.0066 * accAngle;
-  
-  targetAngle = wishedAngle + zeroAngle;
-
-  //Calculate the error, error sum and motor power
-  error = currentAngle - targetAngle;
-  errorSum += error;   //This += is the same as errorSum = errorSum + error;
-  errorSum = constrain(errorSum, -300, 300);
-  
-  //Calculate the output from P, I and D values
-  motorPower = Kp * error + Ki * errorSum * sampleTime - Kd * (currentAngle - prevAngle) / sampleTime;
-  prevAngle = currentAngle;
-
-  //DEBUG information
-  if(DEBUG_GYRO) {
-    Serial.print("Current Angle: ");
-    Serial.println(currentAngle);
-    Serial.print("Target Angle: ");
-    Serial.println(targetAngle);
-    Serial.print("Motor Power: ");
-    Serial.println(motorPower);
-    Serial.println("");
   }
 }
 
@@ -408,5 +331,42 @@ void displayMenu()
     }
 
     delay(100); // Adjust delay as needed
+  }
+}
+
+/***********************************Read Gyroscope******************************************/
+/// @brief This function will read the gyroscope values and store them in the global variables.
+void readGyroscope()
+{
+  // Read the accelerometer
+  mpu.getEvent(&a, &g, &temp);
+
+  // Store the gyroscope values in the global variables
+  accX = a.acceleration.x;
+  accY = a.acceleration.y;
+
+  if (DEBUG_GYRO)
+  {
+    display.clearDisplay();
+    display.setCursor(0, 0);
+
+    display.println("Accelerometer - m/s^2");
+    display.print(a.acceleration.x, 1);
+    display.print(", ");
+    display.print(a.acceleration.y, 1);
+    display.print(", ");
+    display.print(a.acceleration.z, 1);
+    display.println("");
+
+    display.println("Gyroscope - rps");
+    display.print(g.gyro.x, 1);
+    display.print(", ");
+    display.print(g.gyro.y, 1);
+    display.print(", ");
+    display.print(g.gyro.z, 1);
+    display.println("");
+
+    display.display();
+    delay(100);
   }
 }

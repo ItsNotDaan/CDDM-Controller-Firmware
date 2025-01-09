@@ -21,7 +21,8 @@
   0.2 - Added the OLED screen and the gyroscope and the rotary encoder
   0.3 - Added the ESP-NOW EASY library with the deep sleep functionality
   0.4 - Cleaning up code and adding comments. TO-DO: Make the device OLED more user-friendly.
-  0.5 - Added the beginning of the menu system. 
+  0.5 - Added the beginning of the menu system.
+  0.6 - Added the menu system and the sub-menu system. Values on the robot can be changed using the controller.
 */
 
 // include libraries
@@ -92,9 +93,9 @@ int CLK_state;
 int prev_CLK_state;
 
 // PID variables
-int KP = -1;
-int KI = -1;
-int KD = -1;
+float KP = 0.00;
+float KI = 0.00;
+float KD = 0.00;
 
 // OLED screen variables
 bool inSubMenuPress = false;
@@ -113,14 +114,14 @@ void setup()
   Wire.begin(MCU_SDA, MCU_SCL, 1000000); // Start the I2C communication
 
   // ESPNOW
-  // if (initESPNOW(DEVICE_TYPE, DEBUG_SETTING) == false)
-  // {
-  //   Serial.println("ESP-NOW initialization failed");
-  //   ESP.restart();
-  // }
+  if (initESPNOW(DEVICE_TYPE, DEBUG_SETTING) == false)
+  {
+    Serial.println("ESP-NOW initialization failed");
+    ESP.restart();
+  }
 
-  // startPairingProcess();
-  // setReceivedMessageOnMonitor(DEBUG_ESPNOW);
+  startPairingProcess();
+  setReceivedMessageOnMonitor(DEBUG_ESPNOW);
 
   // Initialize the MPU6050 and set offset values
   if (!mpu.begin())
@@ -184,7 +185,7 @@ void loop()
   checkOnOffSwitch();
 
   // Check the ESP-NOW pairing mode status
-  // checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
+  checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
 
   // Write to ESP-NOW
   // sendMpuData(0, 0, 0, accX, accY, 0);
@@ -383,8 +384,11 @@ void displayMenu(int rotaryResult)
         display.println();
         display.println("Press rotary encoder.");
         break;
-      case 5:
-        display.println("Menu 6");
+      case 5: // Menu 6: Set Robot to Zero
+        display.println("Menu 6: Set Zero");
+        display.println("Set Robot to zero.");
+        display.println();
+        display.println("Press rotary encoder.");
         break;
       case 6:
         display.println("Menu 7");
@@ -419,15 +423,8 @@ void displaySubMenu(int rotaryResult)
   display.clearDisplay();
   display.setCursor(0, 0);
 
-  bool changeDetected = false;
-
-  // Check the rotary encoder for a turn, if no change of value is detechted the changeDetected will remain false.
+  // Check the rotary encoder for a turn, if no change of value is detecteted lastSubMenuValue.
   if (rotaryResult != lastSubMenuValue)
-  {
-    changeDetected = true;
-  }
-
-  if (changeDetected)
   {
     lastSubMenuValue = rotaryResult;
 
@@ -436,13 +433,20 @@ void displaySubMenu(int rotaryResult)
     case 0: // Sub Menu 1: This submenu should perform the ESPNOW reconnection.
       display.println("Sub Menu 1: Connect");
       display.println("Reconnecting...");
-      // Check the ESP-NOW pairing mode status
-      checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
+      display.display();
+
+      // Reconnect to the robot
+      startPairingProcess();
+
+      delay(1000);
+      // checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
 
       display.clearDisplay();
       display.setCursor(0, 0);
       display.println("Sub Menu 1: Connect");
       display.println("Connected!");
+      display.display();
+      delay(2000);
 
       // Break out of the sub menu
       inSubMenuPress = false;
@@ -450,6 +454,8 @@ void displaySubMenu(int rotaryResult)
     case 1: // Sub Menu 2: Set Controller Zero
       display.println("Sub Menu 2: Zero");
       display.println("Set controller zero.");
+
+      sendData(DATA, "Hello", 1);
       // Variables still need to be created
       display.println("WORK IN PROGRESS");
       break;
@@ -469,6 +475,8 @@ void displaySubMenu(int rotaryResult)
       {
         KP--;
       }
+
+      sendData(DATA, "KP", KP);
       break;
     case 3: // Sub Menu 4: Set KI value
       display.println("Sub Menu 4: Set KI");
@@ -487,6 +495,8 @@ void displaySubMenu(int rotaryResult)
         KI--;
       }
 
+      sendData(DATA, "KI", KI);
+
       break;
     case 4: // Sub Menu 5: Set KD value
       display.println("Sub Menu 5: Set KD");
@@ -498,12 +508,28 @@ void displaySubMenu(int rotaryResult)
       // The logic to change the KD value
       if (rotaryResult == 1)
       {
-        KD++;
+        KD = KD + 0.01;
       }
       else if (rotaryResult == -1)
       {
-        KD--;
+        KD = KD - 0.01;
       }
+
+      sendData(DATA, "KD", KD);
+      break;
+    case 5: // Sub Menu 6: Set Robot to Zero
+
+      sendData(DATA, "ZERO", 0);
+
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.println("Sub Menu 6: Set Zero");
+      display.println("Robot set to zero.");
+      display.display();
+      delay(2000);
+
+      // Break out of the sub menu
+      inSubMenuPress = false;
       break;
     default:
       display.println("INVALID MENU INDEX");

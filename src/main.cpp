@@ -21,6 +21,7 @@
   0.2 - Added the OLED screen and the gyroscope and the rotary encoder
   0.3 - Added the ESP-NOW EASY library with the deep sleep functionality
   0.4 - Cleaning up code and adding comments. TO-DO: Make the device OLED more user-friendly.
+  0.5 - Added the beginning of the menu system. 
 */
 
 // include libraries
@@ -40,7 +41,7 @@
 
 // ------- Declare Constants -------
 // Debug Settings (true or false)
-#define DEBUG_GYRO true
+#define DEBUG_GYRO false
 #define DEBUG_ROTARY false
 #define DEBUG_ESPNOW false
 #define DEBUG_SYSTEM true
@@ -73,9 +74,10 @@ Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 // ----- Declare subroutines and/or functions -----
 void readGyroscope();
-void checkRotaryEncoder();
+int checkRotaryEncoder();
 void checkOnOffSwitch();
-void displayMenu();
+void displayMenu(int rotaryResult);
+void displaySubMenu(int rotaryResult);
 
 // ----- Declare Global Variables -----
 // MPU6050 variables
@@ -89,6 +91,19 @@ int rotaryTurnCount = 0;
 int CLK_state;
 int prev_CLK_state;
 
+// PID variables
+int KP = -1;
+int KI = -1;
+int KD = -1;
+
+// OLED screen variables
+bool inSubMenuPress = false;
+bool wasInSubMenu = false;
+int lastSubMenuValue = 0;
+
+int menuIndex = -1;
+int lastMenuIndex = -1;
+
 // Setup
 void setup()
 {
@@ -98,14 +113,14 @@ void setup()
   Wire.begin(MCU_SDA, MCU_SCL, 1000000); // Start the I2C communication
 
   // ESPNOW
-  if (initESPNOW(DEVICE_TYPE, DEBUG_SETTING) == false)
-  {
-    Serial.println("ESP-NOW initialization failed");
-    ESP.restart();
-  }
+  // if (initESPNOW(DEVICE_TYPE, DEBUG_SETTING) == false)
+  // {
+  //   Serial.println("ESP-NOW initialization failed");
+  //   ESP.restart();
+  // }
 
-  startPairingProcess();
-  setReceivedMessageOnMonitor(DEBUG_ESPNOW);
+  // startPairingProcess();
+  // setReceivedMessageOnMonitor(DEBUG_ESPNOW);
 
   // Initialize the MPU6050 and set offset values
   if (!mpu.begin())
@@ -157,7 +172,10 @@ void setup()
 void loop()
 {
   // Check the rotary encoder for a turn or press.
-  checkRotaryEncoder();
+  int funcValue = checkRotaryEncoder();
+
+  // Display the menu on the OLED screen
+  displayMenu(funcValue);
 
   // Read the gyroscope values
   readGyroscope();
@@ -166,10 +184,10 @@ void loop()
   checkOnOffSwitch();
 
   // Check the ESP-NOW pairing mode status
-  checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
+  // checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
 
   // Write to ESP-NOW
-  sendMpuData(0, 0, 0, accX, accY, 0);
+  // sendMpuData(0, 0, 0, accX, accY, 0);
   // sendData(DATA, "Hello", 1);
 }
 //******************************************************************************************************//
@@ -199,14 +217,10 @@ void checkOnOffSwitch()
 
 /***********************************Check Rotary Encoder******************************************/
 /// @brief This function will check the rotary encoder for a turn or press.
-void checkRotaryEncoder()
+/// @return 1 for clockwise turn, -1 for counter-clockwise turn, 2 for button press, 0 for no action.
+int checkRotaryEncoder()
 {
-  // Check the rotary encoder button for a press.
-  if ((digitalRead(MCU_ROTARY_BUTTON) == LOW) && (rotaryButtonState == HIGH))
-  {
-    rotaryButtonCount++;
-  }
-  rotaryButtonState = digitalRead(MCU_ROTARY_BUTTON);
+  int returnResult = 0;
 
   // read the current state of the rotary encoder's CLK pin
   CLK_state = digitalRead(MCU_ROTARY_ENCODING_A1);
@@ -219,17 +233,24 @@ void checkRotaryEncoder()
     // the encoder is rotating in counter-clockwise direction => decrease the counter
     if (digitalRead(MCU_ROTARY_ENCODING_B1) == HIGH)
     {
-      rotaryTurnCount--;
+      returnResult = 1;
     }
     else
     {
       // the encoder is rotating in clockwise direction => increase the counter
-      rotaryTurnCount++;
+      returnResult = -1;
     }
   }
 
   // save last CLK state
   prev_CLK_state = CLK_state;
+
+  // Check the rotary encoder button for a press.
+  if ((digitalRead(MCU_ROTARY_BUTTON) == LOW) && (rotaryButtonState == HIGH))
+  {
+    returnResult = 2;
+  }
+  rotaryButtonState = digitalRead(MCU_ROTARY_BUTTON);
 
   // Display the rotary encoder values on the OLED screen
   if (DEBUG_ROTARY)
@@ -242,48 +263,8 @@ void checkRotaryEncoder()
     display.println(rotaryTurnCount);
     display.display();
   }
-}
 
-/***********************************Menu******************************************/
-/// @brief This function will display a menu on the OLED screen and navigate through it using the rotary encoder.
-void displayMenu()
-{
-  int menuIndex = 0;
-  int lastMenuIndex = -1;
-
-  while (true)
-  {
-    // Read the rotary encoder
-    int newMenuIndex = menuIndex; // Replace this with actual rotary encoder reading logic
-
-    if (newMenuIndex != lastMenuIndex)
-    {
-      lastMenuIndex = newMenuIndex;
-
-      display.clearDisplay();
-      display.setCursor(0, 0);
-
-      switch (newMenuIndex)
-      {
-      case 0:
-        display.println("Menu Item 1");
-        break;
-      case 1:
-        display.println("Menu Item 2");
-        break;
-      case 2:
-        display.println("Menu Item 3");
-        break;
-      default:
-        display.println("Invalid Menu Item");
-        break;
-      }
-
-      display.display();
-    }
-
-    delay(100); // Adjust delay as needed
-  }
+  return returnResult;
 }
 
 /***********************************Read Gyroscope******************************************/
@@ -320,5 +301,218 @@ void readGyroscope()
 
     display.display();
     delay(100);
+  }
+}
+
+/***********************************Menu******************************************/
+/// @brief This function will display a menu on the OLED screen and navigate through it using the rotary encoder.
+/// @param rotaryResult The result of the rotary encoder check.
+void displayMenu(int rotaryResult)
+{
+
+  if (rotaryResult == 2)
+  {
+    inSubMenuPress = !inSubMenuPress;
+  }
+
+  if (inSubMenuPress) // Check if the user is in the sub menu.
+  {
+    // function to display the sub menu
+    displaySubMenu(rotaryResult);
+
+    wasInSubMenu = true;
+    return;
+  }
+  else // If the user is not in the sub menu display the main menu.
+  {
+    // Check if the rotary encoder has been turned.
+    if (rotaryResult == 1)
+    {
+      menuIndex++;
+      if (menuIndex > 9)
+      {
+        menuIndex = 0;
+      }
+    }
+    else if (rotaryResult == -1)
+    {
+      menuIndex--;
+      if (menuIndex < 0)
+      {
+        menuIndex = 9;
+      }
+    }
+
+    // Display the menu on the OLED screen
+    if ((menuIndex != lastMenuIndex) || (wasInSubMenu == true)) //
+    {
+      wasInSubMenu = false; // Check to see if the user was in the sub menu. This should reset the screen to the main menu.
+
+      display.clearDisplay();
+      display.setCursor(0, 0); // 22 characters per line.
+
+      switch (menuIndex)
+      {
+      case 0: // Menu 1: Connect to robot
+        display.println("Menu 1: Connect");
+        display.println("(Re)Connect to robot.");
+        display.println();
+        display.println("Press rotary encoder.");
+        break;
+      case 1: // Menu 2: Set Controller Zero
+        display.println("Menu 2: Zero Position");
+        display.println("Set controller zero.");
+        display.println();
+        display.println("Press rotary encoder.");
+        break;
+      case 2: // Menu 3: Set KP value
+        display.println("Menu 3: Set KP");
+        display.println("Set Robot KP value.");
+        display.println();
+        display.println("Press rotary encoder.");
+        break;
+      case 3: // Menu 4: Set KI value
+        display.println("Menu 4: Set KI");
+        display.println("Set Robot KI value.");
+        display.println();
+        display.println("Press rotary encoder.");
+        break;
+      case 4: // Menu 5: Set KD value
+        display.println("Menu 5: Set KD");
+        display.println("Set Robot KD value.");
+        display.println();
+        display.println("Press rotary encoder.");
+        break;
+      case 5:
+        display.println("Menu 6");
+        break;
+      case 6:
+        display.println("Menu 7");
+        break;
+      case 7:
+        display.println("Menu 8");
+        break;
+      case 8:
+        display.println("Menu 9");
+        break;
+      case 9:
+        display.println("Menu 10");
+        break;
+      default:
+        display.println("INVALID MENU INDEX");
+        display.println();
+        display.println("Please rotate the");
+        display.println("rotary encoder.");
+        break;
+      }
+
+      display.display();
+      lastMenuIndex = menuIndex;
+    }
+  }
+}
+
+/***********************************Sub Menu******************************************/
+/// @brief This function will handle the sub menu of the OLED screen depending on the main menu selection.
+void displaySubMenu(int rotaryResult)
+{
+  display.clearDisplay();
+  display.setCursor(0, 0);
+
+  bool changeDetected = false;
+
+  // Check the rotary encoder for a turn, if no change of value is detechted the changeDetected will remain false.
+  if (rotaryResult != lastSubMenuValue)
+  {
+    changeDetected = true;
+  }
+
+  if (changeDetected)
+  {
+    lastSubMenuValue = rotaryResult;
+
+    switch (menuIndex)
+    {
+    case 0: // Sub Menu 1: This submenu should perform the ESPNOW reconnection.
+      display.println("Sub Menu 1: Connect");
+      display.println("Reconnecting...");
+      // Check the ESP-NOW pairing mode status
+      checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
+
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.println("Sub Menu 1: Connect");
+      display.println("Connected!");
+
+      // Break out of the sub menu
+      inSubMenuPress = false;
+      break;
+    case 1: // Sub Menu 2: Set Controller Zero
+      display.println("Sub Menu 2: Zero");
+      display.println("Set controller zero.");
+      // Variables still need to be created
+      display.println("WORK IN PROGRESS");
+      break;
+    case 2: // Sub Menu 3: Set KP value
+      display.println("Sub Menu 3: Set KP");
+      display.print("KP: ");
+      display.println(KP);
+      display.println();
+      display.println("Rotate the encoder");
+
+      // The logic to change the KP value
+      if (rotaryResult == 1)
+      {
+        KP++;
+      }
+      else if (rotaryResult == -1)
+      {
+        KP--;
+      }
+      break;
+    case 3: // Sub Menu 4: Set KI value
+      display.println("Sub Menu 4: Set KI");
+      display.print("KI: ");
+      display.println(KI);
+      display.println();
+      display.println("Rotate the encoder");
+
+      // The logic to change the KI value
+      if (rotaryResult == 1)
+      {
+        KI++;
+      }
+      else if (rotaryResult == -1)
+      {
+        KI--;
+      }
+
+      break;
+    case 4: // Sub Menu 5: Set KD value
+      display.println("Sub Menu 5: Set KD");
+      display.print("KD: ");
+      display.println(KD);
+      display.println();
+      display.println("Rotate the encoder");
+
+      // The logic to change the KD value
+      if (rotaryResult == 1)
+      {
+        KD++;
+      }
+      else if (rotaryResult == -1)
+      {
+        KD--;
+      }
+      break;
+    default:
+      display.println("INVALID MENU INDEX");
+      display.println();
+      display.println("Create the sub");
+      display.println("menu Daan.");
+      break;
+    }
+
+    display.display();
   }
 }

@@ -23,6 +23,7 @@
   0.4 - Cleaning up code and adding comments. TO-DO: Make the device OLED more user-friendly.
   0.5 - Added the beginning of the menu system.
   0.6 - Added the menu system and the sub-menu system. Values on the robot can be changed using the controller.
+  0.6.1 - Fix I2C initialization issue to prevent program crash when not connected. Added Blue LED ESPNOW for testing.
 */
 
 // include libraries
@@ -81,6 +82,10 @@ void displayMenu(int rotaryResult);
 void displaySubMenu(int rotaryResult);
 
 // ----- Declare Global Variables -----
+// I2C initialization variables
+bool initMPUDone = false;
+bool initOLEDDone = false;
+
 // MPU6050 variables
 float accY, accX;
 
@@ -105,6 +110,9 @@ int lastSubMenuValue = 0;
 int menuIndex = -1;
 int lastMenuIndex = -1;
 
+// Testing variables
+int blueLEDValue = 0;
+
 // Setup
 void setup()
 {
@@ -124,30 +132,38 @@ void setup()
   setReceivedMessageOnMonitor(DEBUG_ESPNOW);
 
   // Initialize the MPU6050 and set offset values
-  if (!mpu.begin())
+  if (mpu.begin())
+  {
+    Serial.println("MPU6050 Found!");
+
+    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+    mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+
+    initMPUDone = true; // Set the initialization flag
+  }
+  else
   {
     Serial.println("Failed to find MPU6050 chip");
-    while (1)
-    {
-      delay(10);
-    }
   }
-  Serial.println("MPU6050 Found!");
-
-  // Initialize the MPU6050 and set offset values
-  mpu.begin();
-
-  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
   // Initialize the OLED screen
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3C for 128x32
-  display.clearDisplay();
+  if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
+  {
+    Serial.println("SSD1306 allocation done");
 
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setRotation(0);
+    display.clearDisplay();
+
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.setRotation(0);
+
+    initOLEDDone = true;
+  }
+  else
+  {
+    Serial.println("SSD1306 allocation failed");
+  }
 
   // Init the rotary encoder pins
   pinMode(MCU_ROTARY_ENCODING_A1, INPUT_PULLUP);
@@ -161,11 +177,6 @@ void setup()
   gpio_pulldown_en(MCU_WAKE_DEEPSLEEP);
   gpio_pullup_dis(MCU_WAKE_DEEPSLEEP);
 
-  // Display the welcome message
-  display.setCursor(0, 0);
-  display.println("Hello, World!");
-  display.display();
-
   Serial.println("Setup complete");
 }
 
@@ -176,16 +187,22 @@ void loop()
   int funcValue = checkRotaryEncoder();
 
   // Display the menu on the OLED screen
-  displayMenu(funcValue);
+  if (initOLEDDone)
+  {
+    displayMenu(funcValue);
+  }
 
   // Read the gyroscope values
-  readGyroscope();
+  if (initMPUDone)
+  {
+    readGyroscope();
+  }
 
   // Check if the wake/deepsleep switch is pressed
   checkOnOffSwitch();
 
   // Check the ESP-NOW pairing mode status
-  checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
+  // checkPairingModeStatus(5000); // Check the pairing mode status every 5 seconds if pairing mode is active.
 
   // Write to ESP-NOW
   // sendMpuData(0, 0, 0, accX, accY, 0);
@@ -390,8 +407,11 @@ void displayMenu(int rotaryResult)
         display.println();
         display.println("Press rotary encoder.");
         break;
-      case 6:
-        display.println("Menu 7");
+      case 6: // Menu 7: Change blue value of LED. 0-255.
+        display.println("Menu 7: Blue LED");
+        display.println("Change blue value.");
+        display.println();
+        display.println("Press rotary encoder.");
         break;
       case 7:
         display.println("Menu 8");
@@ -460,12 +480,6 @@ void displaySubMenu(int rotaryResult)
       display.println("WORK IN PROGRESS");
       break;
     case 2: // Sub Menu 3: Set KP value
-      display.println("Sub Menu 3: Set KP");
-      display.print("KP: ");
-      display.println(KP);
-      display.println();
-      display.println("Rotate the encoder");
-
       // The logic to change the KP value
       if (rotaryResult == 1)
       {
@@ -476,16 +490,16 @@ void displaySubMenu(int rotaryResult)
         KP--;
       }
 
-      sendData(DATA, "KP", KP);
-      break;
-    case 3: // Sub Menu 4: Set KI value
-      display.println("Sub Menu 4: Set KI");
-      display.print("KI: ");
-      display.println(KI);
+      display.println("Sub Menu 3: Set KP");
+      display.print("KP: ");
+      display.println(KP);
       display.println();
       display.println("Rotate the encoder");
 
-      // The logic to change the KI value
+      sendData(DATA, "KP", KP);
+      break;
+    case 3: // Sub Menu 4: Set KI value
+            // The logic to change the KI value
       if (rotaryResult == 1)
       {
         KI++;
@@ -495,16 +509,16 @@ void displaySubMenu(int rotaryResult)
         KI--;
       }
 
+      display.println("Sub Menu 4: Set KI");
+      display.print("KI: ");
+      display.println(KI);
+      display.println();
+      display.println("Rotate the encoder");
+
       sendData(DATA, "KI", KI);
 
       break;
     case 4: // Sub Menu 5: Set KD value
-      display.println("Sub Menu 5: Set KD");
-      display.print("KD: ");
-      display.println(KD);
-      display.println();
-      display.println("Rotate the encoder");
-
       // The logic to change the KD value
       if (rotaryResult == 1)
       {
@@ -514,6 +528,12 @@ void displaySubMenu(int rotaryResult)
       {
         KD = KD - 0.01;
       }
+
+      display.println("Sub Menu 5: Set KD");
+      display.print("KD: ");
+      display.println(KD);
+      display.println();
+      display.println("Rotate the encoder");
 
       sendData(DATA, "KD", KD);
       break;
@@ -530,6 +550,38 @@ void displaySubMenu(int rotaryResult)
 
       // Break out of the sub menu
       inSubMenuPress = false;
+      break;
+    case 6: // Sub Menu 7: Change blue value of LED. 0-255.
+            // The logic to change the blue value of the LED
+      if (rotaryResult == 1)
+      {
+        // Increase the blue value
+        blueLEDValue += 5;
+      }
+      else if (rotaryResult == -1)
+      {
+        // Decrease the blue value
+        blueLEDValue -= 5;
+      }
+
+      // Check if the blue value is within the range of 0-255
+      if (blueLEDValue > 255)
+      {
+        blueLEDValue = 255;
+      }
+      else if (blueLEDValue < 0)
+      {
+        blueLEDValue = 0;
+      }
+
+      display.println("Sub Menu 7: Blue LED");
+      display.print("Blue Value: ");
+      display.println(blueLEDValue);
+      display.println();
+      display.println("Rotate the encoder");
+
+      // Send the blue value to the robot
+      sendData(DATA, "LED", blueLEDValue);
       break;
     default:
       display.println("INVALID MENU INDEX");
